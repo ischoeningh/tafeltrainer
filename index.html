@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tafeltrainer Labor</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#162534;--muted:#5a6875;--line:#cfd8e1;--accent:#006c67;--warn:#8a5700}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px system-ui,sans-serif}main{max-width:980px;margin:auto;padding:22px}h1{margin:.2rem 0}h2{margin-top:0}.sub,small{color:var(--muted)}.note{background:#fff8e6;border-left:4px solid #d49016;padding:12px 16px}.grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;margin-top:18px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}label{display:block;font-weight:650;margin:12px 0 6px}input,textarea,button{font:inherit}input[type=file],textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}textarea{min-height:150px}button{border:1px solid var(--line);border-radius:9px;padding:10px 14px;background:var(--card);color:var(--ink);cursor:pointer}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button:disabled{opacity:.5;cursor:default}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stage{position:relative;margin-top:14px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#202830;touch-action:none;min-height:220px;display:flex;align-items:center;justify-content:center}.stage img{display:block;max-width:100%;max-height:520px;user-select:none;-webkit-user-drag:none}.selection{position:absolute;border:3px solid #ffbd38;background:rgba(255,189,56,.18);pointer-events:none}.crop{width:100%;max-height:190px;object-fit:contain;background:#202830;border:1px solid var(--line);border-radius:8px;margin-top:10px}.status{min-height:48px;color:var(--accent);font-weight:600}.bar{height:10px;background:#e3e8ed;border-radius:99px;overflow:hidden}.bar span{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}.words{margin-top:12px}.word{border-top:1px solid var(--line);padding:10px 0}.word input{width:100%;padding:8px;border:1px solid var(--line);border-radius:7px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;background:#dcefeb;color:#174d48;font-size:13px}@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:14px}}@media(prefers-color-scheme:dark){:root{--bg:#101923;--card:#192735;--ink:#eef3f7;--muted:#b8c5d0;--line:#3a4a59;--accent:#29a195}.note{background:#2e291e;color:#f4e5bc}.badge{background:#24473f;color:#d9f2e9}.bar{background:#34424f}}
+</style>
+</head>
+<body><main>
+<span class="badge">Laborversion 0.1 · lokale KI</span>
+<h1>Tafeltrainer</h1>
+<p class="sub">Eine handschriftliche Zeile markieren, lokal erkennen und als Vokabel übernehmen.</p>
+<p class="note"><strong>Laborbedingungen:</strong> Beim ersten Start wird das KI-Modell aus dem Internet geladen und im Browser zwischengespeichert. Danach läuft die Erkennung auf dem Rechner. Das Foto wird von dieser App nicht an einen Erkennungsserver gesendet. TrOCR ist für <strong>eine einzelne, eng zugeschnittene Textzeile</strong> gedacht, nicht für ein komplettes Tafelbild.</p>
+<div class="grid">
+<section class="card">
+<h2>1. Foto und Zeile</h2>
+<label for="photo">Tafelbild auswählen</label>
+<input id="photo" type="file" accept="image/png,image/jpeg,image/webp" capture="environment">
+<small>Dann mit Maus oder Finger einen engen Rahmen um genau eine Zeile ziehen.</small>
+<div id="stage" class="stage"><span class="sub">Noch kein Bild</span><img id="image" alt="Tafelbild" hidden><div id="selection" class="selection" hidden></div></div>
+<div class="actions"><button id="whole" type="button" disabled>Ganzes Bild verwenden</button><button id="clear" type="button" disabled>Auswahl löschen</button></div>
+<label>Ausgewählter Ausschnitt</label>
+<canvas id="crop" class="crop" width="800" height="160"></canvas>
+</section>
+<section class="card">
+<h2>2. Lokal erkennen</h2>
+<div class="actions"><button id="load" class="primary" type="button">KI-Modell laden</button><button id="recognize" class="primary" type="button" disabled>Zeile erkennen</button></div>
+<p id="status" class="status" role="status" aria-live="polite">Zuerst Modell laden und Foto auswählen.</p>
+<div class="bar" aria-hidden="true"><span id="progress"></span></div>
+<label for="result">Erkannter Text</label>
+<textarea id="result" placeholder="Hier erscheint die erkannte Zeile. Korrigiere sie vor der Übernahme."></textarea>
+<div class="actions"><button id="add" type="button">Als Vokabel übernehmen</button><button id="copy" type="button">Text kopieren</button></div>
+<h2 style="margin-top:22px">3. Lernset für den Workshop</h2>
+<div id="words" class="words"><p class="sub">Noch keine Wörter übernommen.</p></div>
+<div class="actions"><button id="download" type="button">Liste herunterladen</button><button id="reset" type="button">Liste leeren</button></div>
+</section>
+</div>
+<footer><small>Technik: Transformers.js + Xenova/trocr-small-handwritten. Keine automatische Übersetzung. Die Erkennung ist ein Demonstrator und muss menschlich geprüft werden.</small></footer>
+</main>
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+const $=id=>document.getElementById(id);
+let recognizer=null, fileUrl='', cropUrl='', dragging=false, start={x:0,y:0}, rect=null, list=[];
+const status=t=>$('status').textContent=t;
+function ready(){ $('recognize').disabled=!(recognizer&&cropUrl); }
+$('load').addEventListener('click',async()=>{
+  $('load').disabled=true; status('Modell wird erstmals geladen. Das kann einige Minuten dauern …');
+  try{
+    recognizer=await pipeline('image-to-text','Xenova/trocr-small-handwritten',{progress_callback:p=>{
+      if(typeof p.progress==='number')$('progress').style.width=Math.round(p.progress)+'%';
+      if(p.status==='progress')status('Modell laden: '+Math.round(p.progress||0)+' %');
+    }});
+    $('progress').style.width='100%';status('Modell bereit. Foto laden und eine einzelne Zeile markieren.');$('load').textContent='Modell geladen';ready();
+  }catch(e){console.error(e);status('Modell konnte nicht geladen werden. Nutze aktuelles Chrome oder Edge und prüfe die Internetverbindung.');$('load').disabled=false;}
+});
+$('photo').addEventListener('change',e=>{
+ const f=e.target.files[0];if(!f)return;if(fileUrl)URL.revokeObjectURL(fileUrl);fileUrl=URL.createObjectURL(f);$('image').src=fileUrl;$('image').hidden=false;$('stage').querySelector('span')?.remove();$('whole').disabled=false;$('clear').disabled=false;status(recognizer?'Ziehe jetzt einen engen Rahmen um eine Zeile.':'Foto geladen. Jetzt KI-Modell laden.');
+});
+function point(ev){const r=$('stage').getBoundingClientRect(),p=ev.touches?ev.touches[0]:ev;return{x:Math.max(0,Math.min(r.width,p.clientX-r.left)),y:Math.max(0,Math.min(r.height,p.clientY-r.top))}}
+function begin(ev){if($('image').hidden)return;ev.preventDefault();dragging=true;start=point(ev);rect={x:start.x,y:start.y,w:0,h:0};drawRect()}
+function move(ev){if(!dragging)return;ev.preventDefault();const p=point(ev);rect={x:Math.min(start.x,p.x),y:Math.min(start.y,p.y),w:Math.abs(p.x-start.x),h:Math.abs(p.y-start.y)};drawRect()}
+function end(ev){if(!dragging)return;dragging=false;if(rect.w<12||rect.h<12){rect=null;$('selection').hidden=true;return}makeCrop()}
+function drawRect(){const s=$('selection');s.hidden=false;Object.assign(s.style,{left:rect.x+'px',top:rect.y+'px',width:rect.w+'px',height:rect.h+'px'})}
+['mousedown','touchstart'].forEach(x=>$('stage').addEventListener(x,begin,{passive:false}));['mousemove','touchmove'].forEach(x=>window.addEventListener(x,move,{passive:false}));['mouseup','touchend'].forEach(x=>window.addEventListener(x,end));
+function makeCrop(){const img=$('image'),stage=$('stage'),sr=stage.getBoundingClientRect(),ir=img.getBoundingClientRect();const ox=ir.left-sr.left,oy=ir.top-sr.top;const x=Math.max(rect.x,ox),y=Math.max(rect.y,oy),r=Math.min(rect.x+rect.w,ox+ir.width),b=Math.min(rect.y+rect.h,oy+ir.height);if(r<=x||b<=y){status('Die Auswahl liegt außerhalb des Bildes.');return}const sx=(x-ox)*img.naturalWidth/ir.width,sy=(y-oy)*img.naturalHeight/ir.height,sw=(r-x)*img.naturalWidth/ir.width,sh=(b-y)*img.naturalHeight/ir.height;renderCrop(sx,sy,sw,sh)}
+function renderCrop(sx,sy,sw,sh){const c=$('crop'),ctx=c.getContext('2d');const scale=Math.min(1200/sw,260/sh,3);c.width=Math.max(1,Math.round(sw*scale));c.height=Math.max(1,Math.round(sh*scale));ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.filter='grayscale(1) contrast(1.35)';ctx.drawImage($('image'),sx,sy,sw,sh,0,0,c.width,c.height);cropUrl=c.toDataURL('image/png');status('Ausschnitt bereit. Jetzt „Zeile erkennen“ klicken.');ready()}
+$('whole').addEventListener('click',()=>{const i=$('image');renderCrop(0,0,i.naturalWidth,i.naturalHeight)});
+$('clear').addEventListener('click',()=>{rect=null;cropUrl='';$('selection').hidden=true;const c=$('crop');c.getContext('2d').clearRect(0,0,c.width,c.height);ready()});
+$('recognize').addEventListener('click',async()=>{if(!recognizer||!cropUrl)return;$('recognize').disabled=true;status('Lokale KI erkennt die markierte Zeile …');try{const out=await recognizer(cropUrl,{max_new_tokens:64});const text=out?.[0]?.generated_text?.trim()||'';$('result').value=text;status(text?'Erkannt. Ergebnis jetzt prüfen und korrigieren.':'Kein Text erkannt. Auswahl enger ziehen oder anderes Foto verwenden.')}catch(e){console.error(e);status('Erkennung fehlgeschlagen. Seite neu laden und erneut versuchen.')}finally{ready()}});
+$('add').addEventListener('click',()=>{const t=$('result').value.trim();if(!t){status('Zuerst Text erkennen oder manuell eintragen.');return}list.push(t);$('result').value='';renderList();status('Vokabel übernommen.')});
+function renderList(){const box=$('words');box.replaceChildren();if(!list.length){box.innerHTML='<p class="sub">Noch keine Wörter übernommen.</p>';return}list.forEach((t,i)=>{const d=document.createElement('div');d.className='word';const inp=document.createElement('input');inp.value=t;inp.addEventListener('input',()=>list[i]=inp.value);const del=document.createElement('button');del.textContent='Entfernen';del.style.marginTop='6px';del.addEventListener('click',()=>{list.splice(i,1);renderList()});d.append(inp,del);box.append(d)})}
+$('copy').addEventListener('click',async()=>{const t=$('result').value;if(!t)return;await navigator.clipboard.writeText(t);status('Text kopiert.')});
+$('download').addEventListener('click',()=>{if(!list.length){status('Die Liste ist leer.');return}const b=new Blob([list.join('\n')+'\n'],{type:'text/plain;charset=utf-8'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='tafeltrainer-wortliste.txt';a.click();setTimeout(()=>URL.revokeObjectURL(u),500)});
+$('reset').addEventListener('click',()=>{if(confirm('Wortliste leeren?')){list=[];renderList()}});
+</script>
+</body></html>
